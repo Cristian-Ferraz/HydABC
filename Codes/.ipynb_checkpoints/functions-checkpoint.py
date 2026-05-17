@@ -9,6 +9,8 @@ import straindesign as sd
 from ipywidgets import interact, interactive
 from ipywidgets import FloatSlider, FloatLogSlider
 from matplotlib.patches import Patch
+from cobra.flux_analysis.loopless import add_loopless, loopless_solution
+from cobra.flux_analysis import pfba
 
 # This function returns a data frame containing the principal production and consumption fluxes for any metabolite in a given model.
 
@@ -191,7 +193,7 @@ def nadh_hyd(model,reaction,step,ko_list=None):
                         model.reactions.get_by_id(r).bounds = (reaction[r],reaction[r])
 
                 solution = model.optimize()
-
+                
                 if solution.objective_value is not None:
 
                     if first:
@@ -200,10 +202,10 @@ def nadh_hyd(model,reaction,step,ko_list=None):
 
                     nadh_bio['NADH Total'].append(sum(model.metabolites.get_by_id('nadh_c').summary(solution).producing_flux['flux']))
                     nadh_bio['Biomass'].append(solution.objective_value)
-                        
-                    #h2_dict['H2'].append(sum(model.metabolites.get_by_id('h2_c').summary(solution).producing_flux['flux']))
-                    h2_dict['H2'].append(solution.fluxes['EX_h2_e_fw'])
+
+
                     h2_dict['Biomass'].append(solution.objective_value)
+                    h2_dict['H2'].append(solution.fluxes['EX_h2_e_fw'])
                     h2_dict['Glucose'].append(solution.fluxes['EX_glc__D_e_bw'])
 
                     for j in results:
@@ -487,7 +489,6 @@ def boxplot(data, colors, title, yaxis, tick_label, patterns, hor, locs, ax=None
     
     pattern_handles = [
         Patch(facecolor='white', edgecolor='black', hatch='.', label='PFOR'),
-        Patch(facecolor='white', edgecolor='black', hatch='*', label='OGOR'),
         Patch(facecolor='white', edgecolor='black', hatch='/', label='PFOR/OGOR')
     ]
 
@@ -504,3 +505,55 @@ def boxplot(data, colors, title, yaxis, tick_label, patterns, hor, locs, ax=None
     save = '../Images/' + title + '.png'
     
     fig.savefig(save,dpi=1200)
+
+def total(model,solution,key):
+
+    dic_aux = {key:0}
+    
+    total_NADH = sum(model.metabolites.get_by_id('nadh_c').summary(solution).producing_flux['flux'])
+    total_ATP = sum(model.metabolites.get_by_id('atp_c').summary(solution).producing_flux['flux'])
+    total_h2 = sum(model.metabolites.get_by_id('h2_e').summary(solution).producing_flux['flux'])
+
+    ldh_flux = solution.fluxes['LDH_D_bw']
+    acald_flux = solution.fluxes['ACALD_bw']
+    acetate_flux = solution.fluxes['ACKr_bw']
+
+    dic_aux[key] = [total_NADH, total_ATP, total_h2,
+                     ldh_flux, acald_flux, acetate_flux]
+
+    return dic_aux
+
+def structure(dic_total):
+    
+    data = {
+        'Total H₂': [dic_total[i][2] for i in dic_total.keys()],
+        'LDH Flux': [dic_total[i][3] for i in dic_total.keys()],
+        'ACALD Flux': [dic_total[i][4] for i in dic_total.keys()],
+        'Total ATP': [dic_total[i][1] for i in dic_total.keys()],
+        'Total NADH': [dic_total[i][0] for i in dic_total.keys()],
+        'Acetate Flux': [dic_total[i][5] for i in dic_total.keys()],
+    }
+
+    return data
+
+def graph_total(dict_merged,strains,legend,name):
+
+    data_structure = structure(dict_merged)
+
+    fig, ax = plt.subplots(figsize=(8,6))
+    
+    ax.plot(strains,data_structure['Total H₂'],'-o',label='H₂',color='k')
+    ax.plot(strains,data_structure['LDH Flux'],'.-',label='LDH Flux',color='b')
+    ax.plot(strains,data_structure['ACALD Flux'],'-x',label='ACALD Flux',color='r')
+    ax.plot(strains,data_structure['Total ATP'],'--',label='ATP',color='y')
+    ax.plot(strains,data_structure['Total NADH'],'-.',label='NADH',color='m')
+    ax.plot(strains,data_structure['Acetate Flux'],':',label='Acetate Flux',color='orange')
+    
+    ax.set_ylabel("Flux [mmol gDW⁻¹ h⁻¹]")
+    
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, bbox_to_anchor=legend)
+
+    file = '../Images/' + name + '.png'
+    
+    fig.savefig(file,dpi=1200)
